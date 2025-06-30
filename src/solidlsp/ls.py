@@ -171,6 +171,11 @@ class SolidLanguageServer(ABC):
 
             ls = Intelephense(config, logger, repository_root_path)
 
+        elif config.code_language == Language.SWIFT:
+            from solidlsp.language_servers.sourcekit_lsp.sourcekit_lsp import SourceKitLSP
+
+            ls = SourceKitLSP(config, logger, repository_root_path)
+
         else:
             logger.log(f"Language {config.code_language} is not supported", logging.ERROR)
             raise LanguageServerException(f"Language {config.code_language} is not supported")

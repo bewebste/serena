@@ -31,7 +31,7 @@ def serena_config():
     """Create an in-memory configuration for tests with test repositories pre-registered."""
     # Create test projects for all supported languages
     test_projects = []
-    for language in [Language.PYTHON, Language.GO, Language.JAVA, Language.RUST, Language.TYPESCRIPT, Language.PHP]:
+    for language in [Language.PYTHON, Language.GO, Language.JAVA, Language.RUST, Language.TYPESCRIPT, Language.PHP, Language.SWIFT]:
         repo_path = get_repo_path(language)
         if repo_path.exists():
             project_name = f"test_repo_{language}"
@@ -94,6 +94,7 @@ class TestSerenaAgent:
             pytest.param(Language.RUST, "add", "Function", "lib.rs", marks=pytest.mark.rust),
             pytest.param(Language.TYPESCRIPT, "DemoClass", "Class", "index.ts", marks=pytest.mark.typescript),
             pytest.param(Language.PHP, "helperFunction", "Function", "helper.php", marks=pytest.mark.php),
+            pytest.param(Language.SWIFT, "Calculator", "Class", "Calculator.swift", marks=pytest.mark.swift),
         ],
         indirect=["serena_agent"],
     )
@@ -132,6 +133,13 @@ class TestSerenaAgent:
             pytest.param(Language.RUST, "add", os.path.join("src", "lib.rs"), os.path.join("src", "main.rs"), marks=pytest.mark.rust),
             pytest.param(Language.TYPESCRIPT, "helperFunction", "index.ts", "use_helper.ts", marks=pytest.mark.typescript),
             pytest.param(Language.PHP, "helperFunction", "helper.php", "index.php", marks=pytest.mark.php),
+            pytest.param(
+                Language.SWIFT,
+                "Calculator",
+                os.path.join("Sources", "test_repo", "Calculator.swift"),
+                os.path.join("Sources", "test_repo_cli", "main.swift"),
+                marks=pytest.mark.swift,
+            ),
         ],
         indirect=["serena_agent"],
     )

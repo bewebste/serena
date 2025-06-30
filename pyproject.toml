@@ -277,6 +277,7 @@ markers = [
     "java: language server running for Java",
     "rust: language server running for Rust",
     "typescript: language server running for TypeScript",
+    "swift: language server running for Swift",
     "php: language server running for PHP",
     "snapshot: snapshot tests for symbolic editing operations",
     "isolated_process: test runs with process isolated agent",
