@@ -47,6 +47,18 @@ class ClangdLanguageServer(SolidLanguageServer):
         """
         platform_id = PlatformUtils.get_platform_id()
 
+        # Check for system clangd on macOS first
+        if platform_id.value.startswith("osx-"):
+            system_clangd_paths = [
+                "/usr/bin/clangd",
+                "/opt/homebrew/bin/clangd",
+                "/usr/local/bin/clangd",
+            ]
+            for clangd_path in system_clangd_paths:
+                if os.path.exists(clangd_path):
+                    logger.log(f"Using system clangd at: {clangd_path}", logging.INFO)
+                    return clangd_path
+
         with open(os.path.join(os.path.dirname(__file__), "runtime_dependencies.json")) as f:
             d = json.load(f)
             del d["_description"]
