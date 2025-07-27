@@ -4,7 +4,7 @@
 </p>
 
 * :rocket: Serena is a powerful **coding agent toolkit** capable of turning an LLM into a fully-featured agent that works **directly on your codebase**.
-* :wrench: Serena provides essential **semantic code retrieval and editing tools** that are akin to an IDE's capabilities, extracting code entities at the symbol level and exploiting relational structure.
+* :wrench: Serena provides essential **semantic code retrieval and editing tools** that are akin to an IDE's capabilities, extracting code entities at the symbol level and exploiting relational structure. When combined with an existing coding agent, these tools greatly enhance (token) efficiency.
 * :free: Serena is **free & open-source**, enhancing the capabilities of LLMs you already have access to free of charge.
 
 ### Demonstration
@@ -66,16 +66,18 @@ than existing solutions that charge a premium.
 Language servers provide support for a wide range of programming languages.
 With Serena, we provide 
  * direct, out-of-the-box support for:
-     * Python 
-     * TypeScript/Javascript
+     * Python
+     * TypeScript/Javascript (currently has some instability issues, we are working on it)
      * PHP
      * Go (need to install go and gopls first)
      * Rust
-     * C/C++
-     * Java (_Note_: startup is slow, initial startup especially so. There seem to be issues with java on macos)
+     * C# (requires dotnet to be installed. We switched the underlying language server recently, please report any issues you encounter)
+     * Java (_Note_: startup is slow, initial startup especially so. There may be issues with java on macos and linux, we are working on it.)
+     * Elixir (Requires NextLS and Elixir install; **Windows not supported** - Next LS does not provide Windows binaries)
+     * Clojure
+     * C/C++ (You may experience issues with finding references, we are working on it)
  * indirect support (may require some code changes/manual installation) for:
      * Ruby (untested)
-     * C# (untested)
      * Kotlin (untested)
      * Dart (untested)
      
@@ -200,9 +202,15 @@ This and other settings can be adjusted in the [configuration](#configuration) a
    git clone https://github.com/oraios/serena
    cd serena
    ```
-2. Optionally create a config file from the template and adjust it according to your preferences.
+2. Optionally create the configuration file in your home directory, i.e.
+
+      * `~/.serena/serena_config.yml` on Linux and macOS, or
+      * `%USERPROFILE%\.serena\serena_config.yml` on Windows.  
+
+   by copying the template and then adjusting it according to your needs:   
    ```shell
-   cp src/serena/resources/serena_config.template.yml serena_config.yml
+   mkdir ~/.serena
+   cp src/serena/resources/serena_config.template.yml ~/.serena/serena_config.yml
    ```
    If you just want the default config, you can skip this part, and a config file will be created when you first run Serena.
 3. Run the server with `uv`:
@@ -278,7 +286,9 @@ Run with parameter `--help` to get a list of available options.
 
 Serena's behavior (active tools and prompts as well as logging configuration, etc.) is configured in four places:
 
-1. The `serena_config.yml` for general settings that apply to all clients and projects
+1. The `serena_config.yml` for general settings that apply to all clients and projects.
+   It is located in your user directory under `.serena/serena_config.yml`.
+   If you do not explicitly create the file, it will be auto-generated when you first run Serena.
 2. In the arguments passed to the `serena-mcp-server` in your client's config (see below), 
    which will apply to all sessions started by the respective client. In particular, the [context](#contexts) parameter
    should be set appropriately for Serena to be best adjusted to existing tools and capabilities of your client.
@@ -344,8 +354,12 @@ For example, when using `uvx`, you would run
 claude mcp add serena -- uvx --from git+https://github.com/oraios/serena serena-mcp-server --context ide-assistant --project $(pwd)
 ```
 
-ℹ️ Once in Claude Code, you should ask Claude to "Read the initial instructions" as your first prompt, such that it will receive information
-on how to use Serena's tools.
+ℹ️ Serena comes with an instruction text, and Claude needs to read it to properly use Serena's tools. 
+  Once in Claude Code, you can ask to "read Serena's initial instructions" or run `/mcp__serena__initial_instructions` to load the instruction text. 
+  Do this whenever you start a new conversation and after any compacting operation to ensure Claude remains properly configured to use Serena's tools.
+
+ℹ️ **NEW**: an alternative to the above is adding the instructions as part of the system prompt, then you will not need to run the command above or to remember re-running it after compacting.
+  This can be achieved through starting claude code with `claude --append-system-prompt $(uvx --from git+https://github.com/oraios/serena serena print-system-prompt)`. Note that this is **experimental**, Claude may not understand the instructions correctly in this way, and we haven't thoroughly tested the resulting behavior. Please report any issues you encounter.
 
 
 ### Claude Desktop
@@ -696,10 +710,11 @@ Serena provides two convenient ways of accessing the logs of the current session
 
     This is mainly supported on Windows, but it may also work on Linux; macOS is unsupported.
 
-Both can be enabled or disabled in Serena's configuration file (`serena_config.yml`, see above).
+Both can be enabled, configured or disabled in Serena's configuration file (`serena_config.yml`, see above).
 If enabled, they will automatically be opened as soon as the Serena agent/MCP server is started.
+The web dashboard will display usage statistics of Serena's tools if you set  `record_tool_usage_stats: True` in your config.
 
-In addition to viewing logs, both tools allow to shut down the Serena agent.
+In addition to viewing logs, both tools allow to shut down the Serena agent. 
 This function is provided, because clients like Claude Desktop may fail to terminate the MCP server subprocess 
 when they themselves are closed.
 
@@ -847,3 +862,4 @@ Here is the full list of Serena's tools with a short description (output of `uv 
  * `think_about_task_adherence`: Thinking tool for determining whether the agent is still on track with the current task.
  * `think_about_whether_you_are_done`: Thinking tool for determining whether the task is truly completed.
  * `write_memory`: Writes a named memory (for future reference) to Serena's project-specific memory store.
+

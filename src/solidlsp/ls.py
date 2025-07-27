@@ -5,7 +5,7 @@ import logging
 import os
 import pathlib
 import pickle
-import re
+import subprocess
 import threading
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -16,9 +16,9 @@ from pathlib import Path, PurePath
 from typing import Self, Union, cast
 
 import pathspec
-import tqdm
 
-from serena.text_utils import MatchedConsecutiveLines, search_files
+from serena.text_utils import MatchedConsecutiveLines
+from serena.util.file_system import match_path
 from solidlsp import ls_types
 from solidlsp.ls_config import Language, LanguageServerConfig
 from solidlsp.ls_exceptions import LanguageServerException
@@ -89,6 +89,17 @@ class SolidLanguageServer(ABC):
         return dirname.startswith(".")
 
     @classmethod
+    def ls_resources_dir(cls, mkdir: bool = True) -> str:
+        """
+        Returns the directory where the language server resources are downloaded.
+        This is used to store language server binaries, configuration files, etc.
+        """
+        result = os.path.join(os.path.dirname(__file__), "language_servers", "static", cls.__name__)
+        if mkdir:
+            os.makedirs(result, exist_ok=True)
+        return result
+
+    @classmethod
     def create(
         cls, config: LanguageServerConfig, logger: LanguageServerLogger, repository_root_path: str, timeout: float | None = None
     ) -> "SolidLanguageServer":
@@ -107,67 +118,77 @@ class SolidLanguageServer(ABC):
         ls: SolidLanguageServer
 
         if config.code_language == Language.PYTHON:
-            from solidlsp.language_servers.pyright_language_server.pyright_server import (
+            from solidlsp.language_servers.pyright_server import (
                 PyrightServer,
             )
 
             ls = PyrightServer(config, logger, repository_root_path)
+        elif config.code_language == Language.PYTHON_JEDI:
+            from solidlsp.language_servers.jedi_server import JediServer
 
+            ls = JediServer(config, logger, repository_root_path)
         elif config.code_language == Language.JAVA:
-            from solidlsp.language_servers.eclipse_jdtls.eclipse_jdtls import (
+            from solidlsp.language_servers.eclipse_jdtls import (
                 EclipseJDTLS,
             )
 
             ls = EclipseJDTLS(config, logger, repository_root_path)
 
         elif config.code_language == Language.KOTLIN:
-            from solidlsp.language_servers.kotlin_language_server.kotlin_language_server import (
+            from solidlsp.language_servers.kotlin_language_server import (
                 KotlinLanguageServer,
             )
 
             ls = KotlinLanguageServer(config, logger, repository_root_path)
 
         elif config.code_language == Language.RUST:
-            from solidlsp.language_servers.rust_analyzer.rust_analyzer import (
+            from solidlsp.language_servers.rust_analyzer import (
                 RustAnalyzer,
             )
 
             ls = RustAnalyzer(config, logger, repository_root_path)
 
         elif config.code_language == Language.CSHARP:
-            from solidlsp.language_servers.omnisharp.omnisharp import OmniSharp
+            from solidlsp.language_servers.csharp_language_server import CSharpLanguageServer
+
+            ls = CSharpLanguageServer(config, logger, repository_root_path)
+        elif config.code_language == Language.CSHARP_OMNISHARP:
+            from solidlsp.language_servers.omnisharp import OmniSharp
 
             ls = OmniSharp(config, logger, repository_root_path)
-
         elif config.code_language == Language.TYPESCRIPT:
-            from solidlsp.language_servers.typescript_language_server.typescript_language_server import (
+            from solidlsp.language_servers.typescript_language_server import (
                 TypeScriptLanguageServer,
             )
 
             ls = TypeScriptLanguageServer(config, logger, repository_root_path)
+        elif config.code_language == Language.TYPESCRIPT_VTS:
+            # VTS based Language Server implementation, need to experiment to see if it improves performance
+            from solidlsp.language_servers.vts_language_server import VtsLanguageServer
 
+            ls = VtsLanguageServer(config, logger, repository_root_path)
         elif config.code_language == Language.GO:
-            from solidlsp.language_servers.gopls.gopls import Gopls
+            from solidlsp.language_servers.gopls import Gopls
 
             ls = Gopls(config, logger, repository_root_path)
 
         elif config.code_language == Language.RUBY:
-            from solidlsp.language_servers.solargraph.solargraph import Solargraph
+            from solidlsp.language_servers.solargraph import Solargraph
 
             ls = Solargraph(config, logger, repository_root_path)
 
         elif config.code_language == Language.DART:
-            from solidlsp.language_servers.dart_language_server.dart_language_server import DartLanguageServer
+            from solidlsp.language_servers.dart_language_server import DartLanguageServer
 
             ls = DartLanguageServer(config, logger, repository_root_path)
 
         elif config.code_language == Language.CPP:
-            from solidlsp.language_servers.clangd_language_server.clangd_language_server import ClangdLanguageServer
+            from solidlsp.language_servers.clangd_language_server import ClangdLanguageServer
 
             ls = ClangdLanguageServer(config, logger, repository_root_path)
 
         elif config.code_language == Language.PHP:
-            from solidlsp.language_servers.intelephense.intelephense import Intelephense
+            from solidlsp.language_servers.intelephense import Intelephense
 
             ls = Intelephense(config, logger, repository_root_path)
 
@@ -175,6 +196,20 @@ class SolidLanguageServer(ABC):
             from solidlsp.language_servers.sourcekit_lsp.sourcekit_lsp import SourceKitLSP
 
             ls = SourceKitLSP(config, logger, repository_root_path)
+        elif config.code_language == Language.CLOJURE:
+            from solidlsp.language_servers.clojure_lsp import ClojureLSP
+
+            ls = ClojureLSP(config, logger, repository_root_path)
+
+        elif config.code_language == Language.ELIXIR:
+            from solidlsp.language_servers.elixir_tools.elixir_tools import ElixirTools
+
+            ls = ElixirTools(config, logger, repository_root_path)
+
+        elif config.code_language == Language.TERRAFORM:
+            from solidlsp.language_servers.terraform_ls import TerraformLS
+
+            ls = TerraformLS(config, logger, repository_root_path)
 
         else:
             logger.log(f"Language {config.code_language} is not supported", logging.ERROR)
@@ -312,20 +347,7 @@ class SolidLanguageServer(ABC):
             if self.is_ignored_dirname(part):
                 return True
 
-        # Use pathspec for gitignore-style pattern matching
-        # Normalize path separators for pathspec (it expects forward slashes)
-        normalized_path = str(rel_path).replace(os.path.sep, "/")
-
-        # pathspec can't handle the matching of directories if they don't end with a slash!
-        # see https://github.com/cpburnz/python-pathspec/issues/89
-        if os.path.isdir(os.path.join(self.repository_root_path, normalized_path)) and not normalized_path.endswith("/"):
-            normalized_path = normalized_path + "/"
-
-        # Use the pathspec matcher to check if the path matches any ignore pattern
-        if self.get_ignore_spec().match_file(normalized_path):
-            return True
-
-        return False
+        return match_path(relative_path, self.get_ignore_spec(), root_path=self.repository_root_path)
 
     def _shutdown(self, timeout: float = 5.0):
         """
@@ -343,14 +365,45 @@ class SolidLanguageServer(ABC):
         # Stage 1: Graceful Termination Request
         # Send LSP shutdown and close stdin to signal no more input.
         try:
-            self.server.shutdown()
+            self.logger.log("Sending LSP shutdown request...", logging.DEBUG)
+            # Use a thread to timeout the LSP shutdown call since it can hang
+            shutdown_thread = threading.Thread(target=self.server.shutdown)
+            shutdown_thread.daemon = True
+            shutdown_thread.start()
+            shutdown_thread.join(timeout=2.0)  # 2 second timeout for LSP shutdown
+
+            if shutdown_thread.is_alive():
+                self.logger.log("LSP shutdown request timed out, proceeding to terminate...", logging.DEBUG)
+            else:
+                self.logger.log("LSP shutdown request completed.", logging.DEBUG)
+
             if process.stdin and not process.stdin.is_closing():
                 process.stdin.close()
-        except Exception:
-            pass  # Ignore errors here, we are proceeding to terminate anyway.
+            self.logger.log("Stage 1 shutdown complete.", logging.DEBUG)
+        except Exception as e:
+            self.logger.log(f"Exception during graceful shutdown: {e}", logging.DEBUG)
+            # Ignore errors here, we are proceeding to terminate anyway.
 
-        # Stage 2: Terminate and Concurrently Drain stdout/stderr
+        # Stage 2: Terminate and Wait for Process to Exit
+        self.logger.log(f"Terminating process {process.pid}, current status: {process.poll()}", logging.DEBUG)
         process.terminate()
+
+        # Stage 3: Wait for process termination with timeout
+        try:
+            self.logger.log(f"Waiting for process {process.pid} to terminate...", logging.DEBUG)
+            exit_code = process.wait(timeout=timeout)
+            self.logger.log(f"Language server process terminated successfully with exit code {exit_code}.", logging.INFO)
+        except subprocess.TimeoutExpired:
+            # If termination failed, forcefully kill the process
+            self.logger.log(f"Process {process.pid} termination timed out, killing process forcefully...", logging.WARNING)
+            process.kill()
+            try:
+                exit_code = process.wait(timeout=2.0)
+                self.logger.log(f"Language server process killed successfully with exit code {exit_code}.", logging.INFO)
+            except subprocess.TimeoutExpired:
+                self.logger.log(f"Process {process.pid} could not be killed within timeout.", logging.ERROR)
+        except Exception as e:
+            self.logger.log(f"Error during process shutdown: {e}", logging.ERROR)
 
     @contextmanager
     def start_server(self) -> Iterator["SolidLanguageServer"]:
@@ -521,7 +574,7 @@ class SolidLanguageServer(ABC):
         """
         if not self.server_started:
             self.logger.log(
-                "find_function_definition called before Language Server started",
+                "request_definition called before Language Server started",
                 logging.ERROR,
             )
             raise LanguageServerException("Language Server not started")
@@ -640,6 +693,14 @@ class SolidLanguageServer(ABC):
             assert LSPConstants.RANGE in item
 
             abs_path = PathUtils.uri_to_path(item[LSPConstants.URI])
+            if not Path(abs_path).is_relative_to(self.repository_root_path):
+                self.logger.log(
+                    "Found a reference in a path outside the repository, probably the LS is parsing things in installed packages or in the standardlib! "
+                    f"Path: {abs_path}. This is a bug but we currently simply skip these references.",
+                    logging.WARNING,
+                )
+                continue
+
             rel_path = Path(abs_path).relative_to(self.repository_root_path)
             if self.is_ignored_path(str(rel_path)):
                 self.logger.log(f"Ignoring reference in {rel_path} since it should be ignored", logging.DEBUG)
@@ -653,31 +714,55 @@ class SolidLanguageServer(ABC):
 
         return ret
 
-    def request_references_with_content(
-        self, relative_file_path: str, line: int, column: int, context_lines_before: int = 0, context_lines_after: int = 0
-    ) -> list[MatchedConsecutiveLines]:
+    def request_text_document_diagnostics(self, relative_file_path: str) -> list[ls_types.Diagnostic]:
         """
-        Like request_references, but returns the content of the lines containing the references, not just the locations.
+        Raise a [textDocument/diagnostic](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_diagnostic) request to the Language Server
+        to find diagnostics for the given file. Wait for the response and return the result.
 
-        :param relative_file_path: The relative path of the file that has the symbol for which references should be looked up
-        :param line: The line number of the symbol
-        :param column: The column number of the symbol
-        :param context_lines_before: The number of lines to include in the context before the line containing the reference
-        :param context_lines_after: The number of lines to include in the context after the line containing the reference
+        :param relative_file_path: The relative path of the file to retrieve diagnostics for
 
-        :return: A list of MatchedConsecutiveLines objects, one for each reference.
+        :return: A list of diagnostics for the file
         """
-        references = self.request_references(relative_file_path, line, column)
-        return [
-            self.retrieve_content_around_line(ref["relativePath"], ref["range"]["start"]["line"], context_lines_before, context_lines_after)
-            for ref in references
-        ]
+        if not self.server_started:
+            self.logger.log(
+                "request_text_document_diagnostics called before Language Server started",
+                logging.ERROR,
+            )
+            raise LanguageServerException("Language Server not started")
 
-    def retrieve_full_file_content(self, relative_file_path: str) -> str:
+        with self.open_file(relative_file_path):
+            response = self.server.send.text_document_diagnostic(
+                {
+                    LSPConstants.TEXT_DOCUMENT: {
+                        LSPConstants.URI: pathlib.Path(str(PurePath(self.repository_root_path, relative_file_path))).as_uri()
+                    }
+                }
+            )
+
+        if response is None:
+            return []
+
+        assert isinstance(response, dict), f"Unexpected response from Language Server (expected list, got {type(response)}): {response}"
+        ret: list[ls_types.Diagnostic] = []
+        for item in response["items"]:
+            new_item: ls_types.Diagnostic = {
+                "uri": pathlib.Path(str(PurePath(self.repository_root_path, relative_file_path))).as_uri(),
+                "severity": item["severity"],
+                "message": item["message"],
+                "range": item["range"],
+                "code": item["code"],
+            }
+            ret.append(ls_types.Diagnostic(new_item))
+
+        return ret
+
+    def retrieve_full_file_content(self, file_path: str) -> str:
         """
         Retrieve the full content of the given file.
         """
-        with self.open_file(relative_file_path) as file_data:
+        if os.path.isabs(file_path):
+            file_path = os.path.relpath(file_path, self.repository_root_path)
+        with self.open_file(file_path) as file_data:
             return file_data.contents
 
     def retrieve_content_around_line(
@@ -825,8 +910,17 @@ class SolidLanguageServer(ABC):
             response = self.server.send.document_symbol(
                 {"textDocument": {"uri": pathlib.Path(os.path.join(self.repository_root_path, relative_file_path)).as_uri()}}
             )
+            if response is None:
+                self.logger.log(
+                    f"Received None response from the Language Server for document symbols in {relative_file_path}. "
+                    f"This means the language server can't understand this file (possibly due to syntax errors). It may also be due to a bug or misconfiguration of the LS. "
+                    f"Returning empty list",
+                    logging.WARNING,
+                )
+                return [], []
+            assert isinstance(response, list), f"Unexpected response from Language Server: {response}"
             self.logger.log(
-                f"Received {len(response) if response is not None else None} document symbols for {relative_file_path} from the Language Server",
+                f"Received {len(response)} document symbols for {relative_file_path} from the Language Server",
                 logging.DEBUG,
             )
 
@@ -864,7 +958,6 @@ class SolidLanguageServer(ABC):
             item[LSPConstants.CHILDREN] = children
 
         flat_all_symbol_list: list[ls_types.UnifiedSymbolInformation] = []
-        assert isinstance(response, list), f"Unexpected response from Language Server: {response}"
         root_nodes: list[ls_types.UnifiedSymbolInformation] = []
         for root_item in response:
             if "range" not in root_item and "location" not in root_item:
@@ -1163,61 +1256,6 @@ class SolidLanguageServer(ABC):
         symbol_start_column = symbol["location"]["range"]["start"]["character"]
         symbol_body = symbol_body[symbol_start_column:]
         return symbol_body
-
-    def request_parsed_files(self) -> list[str]:
-        """Retrieves relative paths of all files analyzed by the Language Server."""
-        if not self.server_started:
-            self.logger.log(
-                "request_parsed_files called before Language Server started",
-                logging.ERROR,
-            )
-            raise LanguageServerException("Language Server not started")
-        rel_file_paths = []
-        for root, dirs, files in os.walk(self.repository_root_path, followlinks=True):
-            dirs[:] = [d for d in dirs if not self.is_ignored_path(os.path.join(root, d))]
-            for file in files:
-                rel_file_path = os.path.relpath(os.path.join(root, file), start=self.repository_root_path)
-                try:
-                    if not self.is_ignored_path(rel_file_path):
-                        rel_file_paths.append(rel_file_path)
-                except FileNotFoundError:
-                    self.logger.log(
-                        f"File {rel_file_path} not found (possibly due it being a symlink), skipping it in request_parsed_files",
-                        logging.WARNING,
-                    )
-        return rel_file_paths
-
-    def search_files_for_pattern(
-        self,
-        pattern: re.Pattern | str,
-        context_lines_before: int = 0,
-        context_lines_after: int = 0,
-        paths_include_glob: str | None = None,
-        paths_exclude_glob: str | None = None,
-    ) -> list[MatchedConsecutiveLines]:
-        """
-        Search for a pattern across all files analyzed by the Language Server.
-
-        :param pattern: Regular expression pattern to search for, either as a compiled Pattern or string
-        :param context_lines_before: Number of lines of context to include before each match
-        :param context_lines_after: Number of lines of context to include after each match
-        :param paths_include_glob: Glob pattern to filter which files to include in the search
-        :param paths_exclude_glob: Glob pattern to filter which files to exclude from the search. Takes precedence over paths_include_glob.
-        :return: List of matched consecutive lines with context
-        """
-        if isinstance(pattern, str):
-            pattern = re.compile(pattern)
-
-        relative_file_paths = self.request_parsed_files()
-        return search_files(
-            relative_file_paths,
-            pattern,
-            file_reader=self.retrieve_full_file_content,
-            context_lines_before=context_lines_before,
-            context_lines_after=context_lines_after,
-            paths_include_glob=paths_include_glob,
-            paths_exclude_glob=paths_exclude_glob,
-        )
 
     def request_referencing_symbols(
         self,
@@ -1548,24 +1586,6 @@ class SolidLanguageServer(ABC):
         The path to the cache file for the document symbols.
         """
         return Path(self.repository_root_path) / ".serena" / "cache" / self.language_id / "document_symbols_cache_v23-06-25.pkl"
-
-    def index_repository(self, progress_bar: bool = True, save_after_n_files: int = 10) -> None:
-        """Will go through the entire repository and "index" all files, meaning save their symbols to the cache.
-
-        :param progress_bar: Whether to show a progress bar while indexing the repository.
-        :param save_after_n_files: How many files to process before saving a checkpoint of the cache.
-        """
-        parsed_files = self.request_parsed_files()
-        files_processed = 0
-        pbar = tqdm.tqdm(parsed_files, disable=not progress_bar)
-        for relative_file_path in pbar:
-            pbar.set_description(f"Indexing ({os.path.basename(relative_file_path)})")
-            self.request_document_symbols(relative_file_path, include_body=False)
-            self.request_document_symbols(relative_file_path, include_body=True)
-            files_processed += 1
-            if files_processed % save_after_n_files == 0:
-                self.save_cache()
-        self.save_cache()
 
     def save_cache(self):
         with self._cache_lock:

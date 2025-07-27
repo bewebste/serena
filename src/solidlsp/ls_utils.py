@@ -131,7 +131,8 @@ class PathUtils:
             from urlparse import urlparse
         parsed = urlparse(uri)
         host = f"{os.path.sep}{os.path.sep}{parsed.netloc}{os.path.sep}"
-        return os.path.normpath(os.path.join(host, url2pathname(unquote(parsed.path))))
+        path = os.path.normpath(os.path.join(host, url2pathname(unquote(parsed.path))))
+        return path
 
     @staticmethod
     def path_to_uri(path: str) -> str:
@@ -152,7 +153,8 @@ class PathUtils:
         returns `None` otherwise.
         """
         if PurePath(path).drive == PurePath(base_path).drive:
-            return str(PurePath(os.path.relpath(path, base_path)))
+            rel_path = str(PurePath(os.path.relpath(path, base_path)))
+            return rel_path
         return None
 
 
@@ -204,10 +206,10 @@ class FileUtils:
             os.makedirs(os.path.dirname(tmp_file_name), exist_ok=True)
             FileUtils.download_file(logger, url, tmp_file_name)
             if archive_type in ["zip", "tar", "gztar", "bztar", "xztar"]:
-                assert os.path.isdir(target_path)
+                os.makedirs(target_path, exist_ok=True)
                 shutil.unpack_archive(tmp_file_name, target_path, archive_type)
             elif archive_type == "zip.gz":
-                assert os.path.isdir(target_path)
+                os.makedirs(target_path, exist_ok=True)
                 tmp_file_name_ungzipped = tmp_file_name + ".zip"
                 tmp_files.append(tmp_file_name_ungzipped)
                 with gzip.open(tmp_file_name, "rb") as f_in, open(tmp_file_name_ungzipped, "wb") as f_out:
@@ -245,6 +247,9 @@ class PlatformId(str, Enum):
     LINUX_MUSL_x64 = "linux-musl-x64"
     LINUX_MUSL_arm64 = "linux-musl-arm64"
 
+    def is_windows(self):
+        return self.value.startswith("win")
+
 
 class DotnetVersion(str, Enum):
     """
@@ -255,6 +260,7 @@ class DotnetVersion(str, Enum):
     V6 = "6"
     V7 = "7"
     V8 = "8"
+    V9 = "9"
     VMONO = "mono"
 
 
@@ -343,15 +349,14 @@ class PlatformUtils:
 
             # Check for supported versions in order of preference (latest first)
             for version_cmd_output in available_version_cmd_output:
+                if version_cmd_output.startswith("9"):
+                    return DotnetVersion.V9
                 if version_cmd_output.startswith("8"):
                     return DotnetVersion.V8
-            for version_cmd_output in available_version_cmd_output:
                 if version_cmd_output.startswith("7"):
                     return DotnetVersion.V7
-            for version_cmd_output in available_version_cmd_output:
                 if version_cmd_output.startswith("6"):
                     return DotnetVersion.V6
-            for version_cmd_output in available_version_cmd_output:
                 if version_cmd_output.startswith("4"):
                     return DotnetVersion.V4
 

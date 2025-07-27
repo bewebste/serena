@@ -1,11 +1,15 @@
 import glob
+import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import NamedTuple
 
 import pathspec
 from pathspec import PathSpec
+
+log = logging.getLogger(__name__)
 
 
 class ScanResult(NamedTuple):
@@ -73,8 +77,10 @@ def find_all_non_ignored_files(repo_root: str) -> list[str]:
     :return: A list of all non-ignored files in the repository
     """
     gitignore_parser = GitignoreParser(repo_root)
-    _, files = scan_directory(repo_root, recursive=True)
-    return [file for file in files if not gitignore_parser.should_ignore(file)]
+    _, files = scan_directory(
+        repo_root, recursive=True, is_ignored_dir=gitignore_parser.should_ignore, is_ignored_file=gitignore_parser.should_ignore
+    )
+    return files
 
 
 @dataclass
@@ -92,14 +98,14 @@ class GitignoreSpec:
         """Initialize the PathSpec from patterns."""
         self.pathspec = PathSpec.from_lines(pathspec.patterns.GitWildMatchPattern, self.patterns)
 
-    def matches(self, path: str) -> bool:
+    def matches(self, relative_path: str) -> bool:
         """
         Check if the given path matches any pattern in this gitignore spec.
 
-        :param path: Path to check (should be relative to repo root)
+        :param relative_path: Path to check (should be relative to repo root)
         :return: True if path matches any pattern
         """
-        return self.pathspec.match_file(path)
+        return match_path(relative_path, self.pathspec, root_path=os.path.dirname(self.file_path))
 
 
 class GitignoreParser:
@@ -179,10 +185,6 @@ class GitignoreParser:
             if not line or line.lstrip().startswith("#"):
                 continue
 
-            # Handle escaped characters at the beginning
-            if line.startswith(("\\#", "\\!")):
-                line = line[1:]
-
             # Store whether this is a negation pattern
             is_negation = line.startswith("!")
             if is_negation:
@@ -194,11 +196,13 @@ class GitignoreParser:
             if not line:
                 continue
 
-            # Determine if pattern is anchored to the gitignore directory
-            is_anchored = "/" in line[:-1] or line.startswith("/")
+            # Handle escaped characters at the beginning
+            if line.startswith(("\\#", "\\!")):
+                line = line[1:]
 
-            # Remove leading slash for processing
-            if line.startswith("/"):
+            # Determine if pattern is anchored to the gitignore directory and remove leading slash for processing
+            is_anchored = line.startswith("/")
+            if is_anchored:
                 line = line[1:]
 
             # Adjust pattern based on gitignore file location
@@ -243,9 +247,20 @@ class GitignoreParser:
         """
         # Convert to relative path from repo root
         if os.path.isabs(path):
-            rel_path = os.path.relpath(path, self.repo_root)
+            try:
+                rel_path = os.path.relpath(path, self.repo_root)
+            except Exception as e:
+                # If the path could not be converted to a relative path,
+                # it is outside the repository root, so we ignore it
+                log.info("Ignoring path '%s' which is outside of the repository root (%s)", path, e)
+                return True
         else:
             rel_path = path
+
+        # Ignore paths inside .git
+        rel_path_first_path = Path(rel_path).parts[0]
+        if rel_path_first_path == ".git":
+            return True
 
         abs_path = os.path.join(self.repo_root, rel_path)
 
@@ -276,12 +291,29 @@ class GitignoreParser:
         self._load_gitignore_files()
 
 
-def match_path(path: str, path_spec: PathSpec) -> bool:
-    path = os.path.abspath(path)
-    normalized_path = str(path).replace(os.path.sep, "/")
+def match_path(relative_path: str, path_spec: PathSpec, root_path: str = "") -> bool:
+    """
+    Match a relative path against a given pathspec. Just pathspec.match_file() is not enough,
+    we need to do some massaging to fix issues with pathspec matching.
+
+    :param relative_path: relative path to match against the pathspec
+    :param path_spec: the pathspec to match against
+    :param root_path: the root path from which the relative path is derived
+    :return:
+    """
+    normalized_path = str(relative_path).replace(os.path.sep, "/")
+
+    # We can have patterns like /src/..., which would only match corresponding paths from the repo root
+    # Unfortunately, pathspec can't know whether a relative path is relative to the repo root or not,
+    # so it will never match src/...
+    # The fix is to just always assume that the input path is relative to the repo root and to
+    # prefix it with /.
+    if not normalized_path.startswith("/"):
+        normalized_path = "/" + normalized_path
 
     # pathspec can't handle the matching of directories if they don't end with a slash!
     # see https://github.com/cpburnz/python-pathspec/issues/89
-    if os.path.isdir(normalized_path) and not normalized_path.endswith("/"):
+    abs_path = os.path.abspath(os.path.join(root_path, relative_path))
+    if os.path.isdir(abs_path) and not normalized_path.endswith("/"):
         normalized_path = normalized_path + "/"
     return path_spec.match_file(normalized_path)

@@ -2,6 +2,16 @@
 
 Status of the `main` branch. Changes prior to the next official version change will appear here.
 
+Fixes:
+* Ignore `.git` in check for ignored paths and improve performance of `find_all_non_ignored_files`
+
+# 0.1.3
+
+## Summary
+
+This is the first release of Serena to pypi. Since the last release, we have greatly improved 
+stability and performance, as well as extended functionality, improved editing tools and included support for several new languages. 
+
 * **Reduce the use of asyncio to a minimum**, improving stability and reducing the need for workarounds
    * Switch to newly developed fully synchronous LSP library `solidlsp` (derived from `multilspy`),
      removing our fork of `multilspy` (src/multilspy)
@@ -9,7 +19,6 @@ Status of the `main` branch. Changes prior to the next official version change w
    * The MCP server is the only asyncio-based component now, which resolves cross-component loop contamination,
      such that process isolation is no longer required.
      Neither are non-graceful shutdowns on Windows.
-* Better default and description for restricting the search in `search_for_pattern`
 * **Improved editing tools**: The editing logic was simplified and improved, making it more robust.
    * The "minimal indentation" logic was removed, because LLMs did not understand it.
    * The logic for the insertion of empty lines was improved (mostly controlled by the LLM now)
@@ -17,6 +26,18 @@ Status of the `main` branch. Changes prior to the next official version change w
    * allows the language server to be initialized in the background, making the MCP server respond to requests
      immediately upon startup,
    * ensures that all tool executions are fully synchronized (executed linearly).
+* `SearchForPatternTool`: Better default, extended parameters and description for restricting the search
+* Language support:
+   * Better support for C# by switching from `omnisharp` to Microsoft's official C# language server.
+   * **Add support for Clojure, Elixir and Terraform. New language servers for C# and typescript.**
+   * Experimental language server implementations can now be accessed by users through configuring the `language` field
+* Configuration:
+   * Add option `web_dashboard_open_on_launch` (allowing the dashboard to be enabled without opening a browser window) 
+   * Add options `record_tool_usage_stats` and `token_count_estimator`
+   * Serena config, modes and contexts can now be adjusted from the user's home directory.
+   * Extended CLI to help with configuration
+* Dashboard:
+  * Displaying tool usage statistics if enabled in the config
 
 Fixes:
 * Fix `ExecuteShellCommandTool` and `GetCurrentConfigTool` hanging on Windows
@@ -27,6 +48,8 @@ Fixes:
 * Fix `ReplaceSymbolBodyTool` changing whitespace before/after the symbol
 * Fix repository indexing not following links and catch exceptions during indexing, allowing indexing
   to continue even if unexpected errors occur for individual files.
+* Fix `ImportError` in Ruby language server.
+* Fix some issues with gitignore matching and interpreting of regexes in `search_for_pattern` tool.
 
 # 2025-06-20
 

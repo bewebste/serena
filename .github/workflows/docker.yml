@@ -4,8 +4,6 @@ on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
 
 env:
   REGISTRY: ghcr.io
@@ -14,6 +12,7 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: write
@@ -50,6 +49,7 @@ jobs:
       with:
         context: .
         target: production
+        platforms: linux/amd64,linux/arm64
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
@@ -61,6 +61,7 @@ jobs:
       with:
         context: .
         target: development
+        platforms: linux/amd64,linux/arm64
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
         labels: ${{ steps.meta.outputs.labels }}
