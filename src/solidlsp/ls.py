@@ -214,7 +214,7 @@ class SolidLanguageServer(ABC):
         elif config.code_language == Language.SWIFT:
             from solidlsp.language_servers.sourcekit_lsp.sourcekit_lsp import SourceKitLSP
 
-            ls = SourceKitLSP(config, logger, repository_root_path)
+            ls = SourceKitLSP(config, logger, repository_root_path, solidlsp_settings=solidlsp_settings)
         elif config.code_language == Language.CLOJURE:
             from solidlsp.language_servers.clojure_lsp import ClojureLSP
 

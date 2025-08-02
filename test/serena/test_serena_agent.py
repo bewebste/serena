@@ -28,7 +28,7 @@ def serena_config():
         Language.PHP,
         Language.CSHARP,
         Language.CLOJURE,
-		Language.SWIFT
+        Language.SWIFT,
     ]:
         repo_path = get_repo_path(language)
         if repo_path.exists():

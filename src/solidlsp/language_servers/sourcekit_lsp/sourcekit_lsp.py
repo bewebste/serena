@@ -16,6 +16,7 @@ from solidlsp.ls_config import LanguageServerConfig
 from solidlsp.ls_logger import LanguageServerLogger
 from solidlsp.lsp_protocol_handler.lsp_types import InitializeParams
 from solidlsp.lsp_protocol_handler.server import ProcessLaunchInfo
+from solidlsp.settings import SolidLSPSettings
 
 
 class SourceKitLSP(SolidLanguageServer):
@@ -24,7 +25,9 @@ class SourceKitLSP(SolidLanguageServer):
     Contains various configurations and settings specific to Swift.
     """
 
-    def __init__(self, config: LanguageServerConfig, logger: LanguageServerLogger, repository_root_path: str):
+    def __init__(
+        self, config: LanguageServerConfig, logger: LanguageServerLogger, repository_root_path: str, solidlsp_settings: SolidLSPSettings
+    ):
         """
         Creates a SourceKitLSP instance. This class is not meant to be instantiated directly.
         Use LanguageServer.create() instead.
@@ -38,6 +41,7 @@ class SourceKitLSP(SolidLanguageServer):
             repository_root_path,
             ProcessLaunchInfo(cmd=sourcekit_lsp_path, cwd=repository_root_path),
             "swift",
+            solidlsp_settings,
         )
 
         # Event to signal when server is ready
